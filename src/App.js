@@ -2,12 +2,14 @@ import React, { useState, useEffect } from "react";
 import "./App.css";
 import "@aws-amplify/ui-react/styles.css";
 import { generateClient } from 'aws-amplify/api';
+import { uploadData, getUrl, remove } from 'aws-amplify/storage';
 import 
 {
   withAuthenticator,
   Button,
   Flex,
   Heading,
+  Image,
   Text,
   TextField,
   View,
@@ -35,6 +37,20 @@ const App = ({ signOut }) =>
   {
     const apiData = await API.graphql({ query: listNotes });
     const notesFromAPI = apiData.data.listNotes.items;
+
+    await Promise.all(
+      notesFromAPI.map(async (note) =>
+      {
+        if(note.image)
+        {
+          const url = await getUrl({key: note.id});
+          note.image = url;
+        }
+
+        return note;
+      })
+    );
+
     setNotes(notesFromAPI);
   }
 
@@ -42,25 +58,35 @@ const App = ({ signOut }) =>
   {
     event.preventDefault();
     const form = new FormData(event.target);
+    const image = form.get("image");
+
     const data = 
     {
       name: form.get("name"),
-      description: form.get("description")
+      description: form.get("description"),
+      image: image.name
     };
 
-    await API.graphql({
+    const result = await API.graphql({
       query: createNoteMutation,
       variables: { input: data }
     });
+
+    if(!!data.image)
+    {
+      await uploadData({key:result.data.createNote.id, data:image}).result;
+    }
 
     fetchNotes();
     event.target.reset();
   }
 
-  async function deleteNote({ id})
+  async function deleteNote({ id, name })
   {
     const newNotes = notes.filter((note) => note.id !== id);
     setNotes(newNotes);
+
+    await remove({key:id});
 
     await API.graphql({
       query: deleteNoteMutation,
@@ -75,6 +101,7 @@ const App = ({ signOut }) =>
         <Flex direction="row" justifyContent="center">
           <TextField name="name" placeholder="Note Name" label="Note Name" labelHidden variation="quiet" required />
           <TextField name="description" placeholder="Note Description" label="Note Description" labelHidden variation="quiet" required />
+          <View name="image" as="input" type="file" style={{ alignSelf: "end" }}/>
           <Button type="submit" variation="primary">Create Note</Button>
         </Flex>
       </View>
@@ -84,6 +111,7 @@ const App = ({ signOut }) =>
           <Flex key={note.id || note.name} direction="row" justifyContent="center" alignItems="center">
             <Text as="strong" fontWeight={700}>{note.name}</Text>
             <Text as="span">{note.description}</Text>
+            {note.image && (<Image src={note.image} alt={`visual aid for ${notes.name}`} style={{ width: 400 }}/>)}
             <Button variation="link" onClick={() => deleteNote(note)}>Delete Note</Button>
           </Flex>
         ))}
